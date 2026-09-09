@@ -1,0 +1,11 @@
+pandas
+numpy
+seaborn
+matplotlib
+scikit-learn
+scipy
+catboost
+xgboost
+Flask
+dill
+-e .  ##runs the setup.py
