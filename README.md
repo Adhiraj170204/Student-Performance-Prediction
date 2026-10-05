@@ -85,7 +85,8 @@ flowchart TD
 
     K --> L[Model Trainer: model_trainer.py]
     L -->|GridSearchCV 3-Fold CV| M[Candidate Models Evaluation]
-    M -->|Best Model Selection| N[(artifacts/model.pkl)]
+    M -->|Select by CV R²| N[(artifacts/model.pkl)]
+    M --> N2[(artifacts/model_report.csv)]
 
     O[Web User Interface: home.html] -->|Form POST Request| P[Flask Server: app.py / application.py]
     P --> Q[CustomData Representation]
@@ -100,23 +101,33 @@ flowchart TD
 
 ## 📊 Model Evaluation & Benchmarks
 
-During experimentation in `notebook/Model Training student.ipynb` and `src/components/model_trainer.py`, multiple regression algorithms were systematically benchmarked using 3-Fold Cross-Validation:
+`src/components/model_trainer.py` tunes each of the 9 candidate models with `GridSearchCV` (3-fold CV, `scoring='r2'`) on the training split only. **The model is selected by mean 3-fold CV $R^2$**, refit on the full training set, and only then evaluated **once** on the 20% holdout test set, for reporting. Test scores play no part in selection. A model is accepted only if its CV $R^2$ is at least 0.60.
 
-| Rank | Model | Train $R^2$ | Test $R^2$ Score | Test RMSE | Test MAE | Status |
-| :---: | :--- | :---: | :---: | :---: | :---: | :---: |
-| 🥇 | **Ridge Regression** | 0.8743 | **0.8806** | **5.390** | **4.211** | Evaluated |
-| 🥈 | **Linear Regression** | 0.8743 | **0.8804** | **5.394** | **4.215** | **Selected Production Model** |
-| 🥉 | **AdaBoost Regressor** | 0.8521 | **0.8532** | 5.976 | 4.738 | Evaluated |
-| 4 | **CatBoost Regressor** | 0.9589 | **0.8516** | 6.009 | 4.613 | Evaluated |
-| 5 | **Random Forest Regressor** | 0.9771 | **0.8490** | 6.062 | 4.758 | Evaluated |
-| 6 | **XGBoost Regressor** | 0.9955 | **0.8278** | 6.473 | 5.058 | Evaluated |
-| 7 | **Lasso Regression** | 0.8071 | **0.8253** | 6.520 | 5.158 | Evaluated |
-| 8 | **K-Neighbors Regressor** | 0.8555 | **0.7838** | 7.253 | 5.621 | Evaluated |
-| 9 | **Support Vector Regressor (SVR)** | 0.8081 | **0.7286** | 8.127 | 5.402 | Evaluated |
-| 10 | **Decision Tree Regressor** | 0.9997 | **0.7158** | 8.315 | 6.595 | Overfitting Noted |
+Results from the latest run (`artifacts/model_report.csv`, sorted by CV $R^2$):
+
+| Rank | Model | Best Params | CV $R^2$ (3-fold) | Train $R^2$ | Test $R^2$ | Test RMSE | Test MAE |
+| :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| 🥇 | **Linear Regression** (selected) | `{}` | **0.8664** | 0.8743 | 0.8804 | 5.394 | 4.215 |
+| 🥈 | **Support Vector Regressor (SVR)** | `C=1, kernel='linear'` | 0.8656 | 0.8726 | 0.8805 | 5.392 | 4.243 |
+| 🥉 | **Gradient Boosting Regressor** | `learning_rate=0.05, n_estimators=128, subsample=0.75` | 0.8498 | 0.8951 | 0.8757 | 5.500 | 4.244 |
+| 4 | **CatBoost Regressor** | `depth=6, iterations=100, learning_rate=0.1` | 0.8490 | 0.9071 | 0.8614 | 5.808 | 4.459 |
+| 5 | **Random Forest Regressor** | `n_estimators=256` | 0.8312 | 0.9772 | 0.8515 | 6.012 | 4.665 |
+| 6 | **AdaBoost Regressor** | `learning_rate=0.5, n_estimators=128` | 0.8257 | 0.8505 | 0.8502 | 6.037 | 4.695 |
+| 7 | **XGBoost Regressor** | `learning_rate=0.05, n_estimators=64` | 0.8248 | 0.9287 | 0.8492 | 6.057 | 4.663 |
+| 8 | **Decision Tree Regressor** | `criterion='poisson'` | 0.7114 | 0.9997 | 0.7543 | 7.732 | 6.195 |
+| 9 | **K-Neighbors Regressor** | `n_neighbors=11, weights='distance'` | 0.6089 | 0.9997 | 0.5807 | 10.101 | 7.961 |
+
+> Tree-based models and CatBoost/XGBoost are not seeded, so their CV scores can shift slightly between training runs. Re-run the pipeline and check `artifacts/model_report.csv` for the current numbers.
 
 ### 💡 Why Linear Regression?
-Linear Regression and Ridge achieved the highest generalization score on unseen test data ($R^2 \approx 88\%$). While tree ensembles (Random Forest, Decision Tree, XGBoost) reached near-perfect scores on training data ($R^2 > 0.97$), they overfit the feature space. The relationship between scores and categorical predictors is predominantly linear, making Linear Regression both optimal in performance and computationally lightweight for deployment.
+Linear Regression had the highest mean 3-fold CV $R^2$ (0.8664), so it was selected and saved to `artifacts/model.pkl`. Its single test-set evaluation gave $R^2$ = 0.8804, RMSE = 5.394 and MAE = 4.215.
+
+- **SVR with a linear kernel** came a very close second (CV $R^2$ 0.8656) and scored marginally higher on the test set (0.8805 vs 0.8804). Picking by test score would have chosen SVR. Because selection uses CV only, the test set stays an unbiased estimate, and a 0.0001 test-set difference is noise. The best SVR kernel was linear, which is consistent with a mostly linear relationship.
+- **Tree ensembles overfit the training data**: Random Forest reached train $R^2$ 0.9772 but CV $R^2$ 0.8312, and Decision Tree reached train $R^2$ 0.9997 but CV $R^2$ 0.7114.
+- Linear Regression has no hyperparameters to tune and is the cheapest model to serve.
+
+#### Notebook experiments (separate from the pipeline)
+`notebook/Model Training student.ipynb` contains earlier exploratory experiments that also tried **Ridge** and **Lasso** regression. Those notebook runs are not part of the training pipeline, do not use this CV-based selection, and are not included in `artifacts/model_report.csv` or the table above.
 
 ---
 
@@ -131,7 +142,8 @@ Student-Performance-Prediction/
 │   ├── train.csv                  # Training subset (80%)
 │   ├── test.csv                   # Testing subset (20%)
 │   ├── preprocessor.pkl           # Fitted ColumnTransformer (numerical + categorical)
-│   └── model.pkl                  # Serialized best trained model (LinearRegression)
+│   ├── model.pkl                  # Serialized best trained model (LinearRegression)
+│   └── model_report.csv           # Per-model best params, CV R², train/test metrics
 ├── notebook/
 │   ├── stud.csv                   # Original raw dataset
 │   ├── EDA Student Performance.ipynb    # Exploratory Data Analysis & visual insights
@@ -191,10 +203,10 @@ Generates timestamp-formatted log files (`MM_DD_YYYY_HH_MM_SS.log`) inside a `lo
 - Bundled into a unified `ColumnTransformer` and serialized using `dill` to `artifacts/preprocessor.pkl`.
 
 ### 5. Model Trainer (`src/components/model_trainer.py`)
-- Evaluates candidate regression algorithms across specified hyperparameter search grids.
-- Compares models using $R^2$ score on the holdout test set.
-- Rejects models below the acceptance threshold ($R^2 < 0.60$).
-- Saves the top-performing model to `artifacts/model.pkl`.
+- Tunes each of the 9 candidate regressors with `GridSearchCV(cv=3, scoring='r2')` on the training set. Every model must have an entry in the `params` dict; `evaluate_models` asserts this, so a name mismatch can't silently fall back to an empty grid.
+- Selects the model with the highest mean 3-fold CV $R^2$. The test set is never used for selection.
+- Rejects the result if the best CV $R^2$ is below the acceptance threshold (0.60).
+- Saves the selected model (refit on the full training set) to `artifacts/model.pkl` and writes per-model metrics (best params, CV/train/test $R^2$, test RMSE/MAE) to `artifacts/model_report.csv`.
 
 ### 6. Prediction Pipeline (`src/pipeline/predict_pipeline.py`)
 - `CustomData`: Maps HTTP form inputs into a structured pandas DataFrame matching feature column names.
@@ -251,17 +263,20 @@ To execute the complete ingestion, transformation, and training pipeline from sc
 ```bash
 python src/components/data_ingestion.py
 ```
-**Expected Output:**
+**Expected Output** (the selected model's test $R^2$, printed to the console):
 ```plaintext
-Splitting training and testing data
-Best model found: LinearRegression with score: 0.8804332983749565
 0.8804332983749565
+```
+The log file in `logs/` records the selection, for example:
+```plaintext
+Best model selected: LinearRegression with params: {}, CV R2: 0.8664332616940963, test R2: 0.8804332983749565
 ```
 This recreates:
 - `artifacts/train.csv`
 - `artifacts/test.csv`
 - `artifacts/preprocessor.pkl`
 - `artifacts/model.pkl`
+- `artifacts/model_report.csv`
 
 ### 2. Launch the Flask Web Application
 
