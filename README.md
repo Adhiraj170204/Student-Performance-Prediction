@@ -346,7 +346,7 @@ option_settings:
 
 ## 👤 Author & License
 
-- **Author**: Surya ([suriya001thesingham@gmail.com](mailto:suriya001thesingham@gmail.com))
+- **Author**: adhiraj ([adhirajdubey17ad@gmail.com](mailto:adhirajdubey17ad@gmail.com))
 - **Maintainer**: Adhiraj Dubey
 - **License**: Distributed under the [MIT License](LICENSE). Feel free to use and adapt this project for educational and commercial purposes.
 
